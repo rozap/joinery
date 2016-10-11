@@ -207,6 +207,8 @@ def handle_fetches(fourfour, order, row_count, page_size, current_page) do
 end
 ```
 
+So now your tests should pass. [If they don't, this is the implementation that I came up with](https://github.com/rozap/joinery/blob/master/lib/joinery/pager.ex)
+
 ### Testing and writing the join function
 The [sort-merge-join](https://en.wikipedia.org/wiki/Sort-merge_join) approach for doing a join will work well for us, because we can request streams of socrata datasets in sorted order. (yes there are row limits let's pretend they don't exist for the sake of simplicity)
 

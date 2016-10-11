@@ -10,7 +10,7 @@ defmodule Joinery.Pager do
       [{"count", c}] = List.first(Enum.into(stream, []))
       row_count = String.to_integer(c)
       # Start a new process
-      pid = spawn_link(__MODULE__, :handle_fetches, [fourfour, order, row_count, page_size, 0])
+      pid = spawn_link(Joinery.Pager, :handle_fetches, [fourfour, order, row_count, page_size, 0])
       {:ok, pid}
     end
   end
@@ -55,7 +55,7 @@ defmodule Joinery.Pager do
     receive do
       {:fetched, result} -> result
     after
-      5000 -> {:error, :timeout}
+      2000 -> {:error, :timeout}
     end
   end
 end
