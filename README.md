@@ -96,8 +96,8 @@ defmodule Joinery.Pager do
   end
 end
 ```
-There's a fair amount going on here.
-* `start/3` first queries the four-four for the count of rows.
+There's a lot going on here.
+* `start/3` queries the four-four for the count of rows.
 * The `with` expression only executes what's in the `do` if the `{:ok, stream}` pattern matches, otherwise it returns the non-matched pattern
 * We then force the exsoda stream into a list, and take the first and only row out of it, and then turn that count into an integer.
 * Then we use `spawn_link/3` to start a new process. `spawn_link/3` takes a module, a function name, and arguments to call the function with, and calls that function in a new process, returning its pid.
@@ -150,8 +150,8 @@ Since elixir pattern matches from top to bottom of the module, we need to define
 Now we'll write the `next/1` function, which will advance the pager and get the page of results. It will probably look something like this.
 ```elixir
 def next(pid) do
-  # Send a message to pid, along with self() which gets *our* pid
-  # Sending our pid will allow the receiving process to send us a
+  # Send a message to pid, along with self() which gets the caller's pid
+  # Sending the caller's pid will allow the receiving process to send us a
   # message back.
   send pid, {:fetch_next, self()}
 
@@ -160,13 +160,52 @@ def next(pid) do
   receive do
     {:fetched, result} -> result
   after
-    5000 -> {:error, :timeout}
+    2000 -> {:error, :timeout}
   end
 end
 
 ```
 
+So now we have enough to actually run the test suite and get some failures. We should see timeouts in the `next` function because we're never actually sending it anything in response to the `{:fetch_next, self()}` message we're sending it.
 
+Let's implement that bit. In the `handle_fetches` function that does the receive, let's do something like this:
+```elixir
+def handle_fetches(fourfour, order, row_count, page_size, current_page) do
+  receive do
+    {:fetch_next, sender_pid} ->
+
+      # Query the four-four with an order, offset, and limit
+      response = query(fourfour)
+      |> order(order)
+      |> offset(page_size * current_page)
+      |> limit(page_size)
+      |> run
+
+      # The result of this expression is what we actually
+      # care about sending to our caller
+      result = case response do
+        {:ok, stream} -> {:ok, Enum.into(stream, [])}
+        {:error, _} = e -> e
+      end
+
+      # Because the caller very helpfully sent along their pid,
+      # we can send them a message back!
+      send sender_pid, {:fetched, result}
+
+      # Now we recursively call ourselves with the incremented page,
+      # which will block until we receive another message. This is a
+      # little-server-state-machine-as-a-function thing. Cool!
+      new_page = current_page + 1
+      handle_fetches(fourfour, order, row_count, page_size, new_page)
+    other ->
+      IO.puts("Pager got an unknown message #{inspect other}")
+
+      # We don't know what to do with that message, so
+      # the state won't change
+      handle_fetches(fourfour, order, row_count, page_size, current_page)
+  end
+end
+```
 
 ### Testing and writing the join function
 The [sort-merge-join](https://en.wikipedia.org/wiki/Sort-merge_join) approach for doing a join will work well for us, because we can request streams of socrata datasets in sorted order. (yes there are row limits let's pretend they don't exist for the sake of simplicity)
