@@ -23,7 +23,6 @@ defmodule Joinery.Pager do
   def handle_fetches(fourfour, order, row_count, page_size, current_page) do
     receive do
       {:fetch_next, sender_pid} ->
-
         response = query(fourfour)
         |> order(order)
         |> offset(page_size * current_page)
@@ -35,6 +34,7 @@ defmodule Joinery.Pager do
           {:error, _} = e -> e
         end
 
+        # Send the result of the page to the process that asked for it
         send sender_pid, {:fetched, result}
 
         # Now we recursively call ourselves with the incremented page
@@ -42,9 +42,7 @@ defmodule Joinery.Pager do
         handle_fetches(fourfour, order, row_count, page_size, new_page)
       other ->
         IO.puts("Pager got an unknown message #{inspect other}")
-
-        # We don't know what to do with that message, so
-        # the state won't change
+        # We don't know what to do with that message, so the state won't change
         handle_fetches(fourfour, order, row_count, page_size, current_page)
     end
   end
