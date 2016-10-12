@@ -48,10 +48,15 @@ defmodule Joinery.Pager do
   end
 
   def next(pid) do
+    IO.puts "Ask #{inspect pid}"
     send pid, {:fetch_next, self()}
+
 
     receive do
       {:fetched, result} -> result
+      :done ->
+        IO.puts "#{inspect pid} is done"
+        :done
     after
       2000 -> {:error, :timeout}
     end

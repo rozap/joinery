@@ -2,67 +2,122 @@ defmodule Joinery.Join do
   alias Joinery.Pager
 
 
-  defp advance([row | _] = rows, join_on) do
+  defp advance(value, subset, rows, pager, join_on, false) when length(subset) > 0 do
+    {value, subset, rows}
+  end
+
+  defp advance(value, subset, [], pager, join_on, true) do
+    case Pager.next(pager) do
+      {:ok, page} ->
+        mappy_page = Enum.map(page, fn row -> Enum.into(row, %{}) end)
+        # IO.puts "Got page #{inspect mappy_page}"
+        advance(value, subset, mappy_page, pager, join_on, true)
+      :done ->
+        advance(value, subset, [], pager, join_on, false)
+    end
+  end
+
+  defp advance(:empty, [row | _] = subset, rows, pager, join_on, has_more) do
     value = Map.get(row, join_on)
-    Enum.split_while(rows, fn %{^join_on => rest_value} ->
-      value == rest_value
+    advance(value, subset, rows, pager, join_on, has_more)
+  end
+
+  defp advance(:empty, [], [row | _] = rows, pager, join_on, has_more) do
+    value = Map.get(row, join_on)
+    advance(value, [], rows, pager, join_on, has_more)
+  end
+
+  defp advance(value, subset, rows, pager, join_on, has_more) do
+    {new_subset, new_rows} = Enum.reduce_while(
+      rows,
+      {subset, []},
+      fn %{^join_on => rest_value} = row, {subset, rows} ->
+        if rest_value == value do
+          {:cont, {[row | subset], rows}}
+        else
+          {:halt, {subset, rows}}
+        end
+      end
+    )
+
+    # IO.puts " joining on #{value} >> #{inspect new_subset} #{inspect new_rows}"
+    advance(value, new_subset, new_rows, pager, join_on, has_more)
+  end
+
+  def advance(rows, pager, join_on) do
+    IO.puts "Advance call #{inspect rows}"
+    advance(:empty, [], rows, pager, join_on, true)
+  end
+
+  defp cart_product(left, right) do
+    Enum.flat_map(left, fn l_row ->
+      Enum.flat_map(right, fn r_row ->
+        Map.merge(l_row, r_row)
+      end)
     end)
   end
 
-  # When both subsets are empty, advance both left and right
-  defp join_maps([], [], left, right, join_on) do
-    {left_subset, left_rest} = advance(left, join_on)
-    {right_subset, right_rest} = advance(right, join_on)
-
-    join_maps(left_subset, right_subset, left_rest, right_rest, join_on)
+  defp do_join(_, _, left_subset, right_subset, _, _, _, _, _)
+    when ((length(left_subset) == 0) or (length(right_subset) == 0)) do
+    IO.puts "Done!"
   end
 
-  defp join_maps([], right_subset, [left_head | left_rest], right, join_on) do
+  # # When both subsets are empty, advance both left and right
+  defp do_join(value, value, left_subset, right_subset, left, right, l_pager, r_pager, join_on) do
+    product = cart_product(left_subset, right_subset)
 
-    join_maps([left_head], right, left_rest, right, join_on)
+    IO.puts "Product is #{inspect product}"
+
+    {new_l_value, new_left_subset, left_rest}    = advance(left, l_pager, join_on)
+    {new_r_value, new_right_subset, right_rest}  = advance(right, r_pager, join_on)
+
+    do_join(
+      new_l_value, new_r_value,
+      new_left_subset, new_right_subset,
+      left_rest, right_rest,
+      l_pager, r_pager,
+      join_on
+    )
   end
 
-  defp join_maps(left_subset, [], left, [right_head | right_rest], join_on) do
-    join_maps(left_subset, [right_head], left, right_rest, join_on)
-  end
+  defp do_join(l_value, r_value, left_subset, right_subset, left, right, l_pager, r_pager, join_on)
+    when l_value < r_value do
+      {new_l_value, new_left_subset, left_rest} = advance(left, l_pager, join_on)
 
-  defp join_maps(left_subset, right_subset, left, right, join_on) do
-    left_value = left[join_on]
-    right_value = right[join_on]
-
-    if left_value == right_value do
-
-    end
-
-    IO.inspect left
-    IO.inspect right
-  end
-
-
-
-  defp join_maps(left, right, join_on) do
-    join_maps([], [], left, right, join_on)
-  end
-
-
-
-  defp to_maplist(rows) do
-    Enum.map(rows, fn row -> Enum.into(row, %{}) end)
-  end
-
-  def join(left_pager, right_pager, join_on) do
-    with {:ok, left} <- Pager.next(left_pager),
-      {:ok, right} <- Pager.next(right_pager) do
-
-      join_maps(
-        to_maplist(left),
-        to_maplist(right),
+      do_join(
+        new_l_value, r_value,
+        new_left_subset, right_subset,
+        left_rest, right,
+        l_pager, r_pager,
         join_on
       )
-    end
   end
 
+  defp do_join(l_value, r_value, left_subset, right_subset, left, right, l_pager, r_pager, join_on)
+    when l_value > r_value do
+      {new_r_value, new_right_subset, right_rest} = advance(right, r_pager, join_on)
 
+      do_join(
+        l_value, new_r_value,
+        left_subset, new_right_subset,
+        left, right_rest,
+        l_pager, r_pager,
+        join_on
+      )
+  end
 
+  def join(l_pager, r_pager, join_on) do
+    {l_value, left_subset, left_rest} = advance([], l_pager, join_on)
+    {r_value, right_subset, right_rest} = advance([], r_pager, join_on)
+
+    do_join(
+      l_value, r_value,
+      left_subset, right_subset,
+      left_rest, right_rest,
+      l_pager,
+      r_pager,
+      join_on
+    )
+  end
 
 end

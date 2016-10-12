@@ -8,18 +8,22 @@ defmodule FastPager do
     spawn_link(
       FastPager,
       :loop,
-      [rows]
+      [sorted_rows]
     )
   end
 
   def loop([]) do
-    :done
+    receive do
+      {:fetch_next, sender_pid} ->
+        send sender_pid, :done
+    end
   end
 
   def loop([row | rest]) do
     receive do
       {:fetch_next, sender_pid} ->
         response = {:ok, [row]}
+        IO.puts "Sending #{inspect response}"
         send sender_pid, {:fetched, response}
         loop(rest)
     end
@@ -30,11 +34,6 @@ end
 defmodule JoinTest do
   use ExUnit.Case
   alias Joinery.Join
-
-  def sort_by_key(rows, key) do
-
-  end
-
 
   test "can do a simple join" do
     left_pager = FastPager.start("emoji", [
