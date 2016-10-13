@@ -8,7 +8,7 @@ defmodule Joinery.Pager do
     |> run
 
     with {:ok, stream} <- count_response do
-      [{"count", c}] = List.first(Enum.into(stream, []))
+      [[{"count", c}]] = Enum.into(stream, [])
       row_count = String.to_integer(c)
 
       Logger.info("Expecting to find #{row_count} in #{fourfour}")

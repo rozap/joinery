@@ -1,5 +1,6 @@
 defmodule Joinery.Join do
   alias Joinery.Pager
+  require Logger
 
   defmodule State do
     defstruct l_value: nil,
@@ -51,6 +52,9 @@ defmodule Joinery.Join do
           else
             {matched, [row | unmatched], false}
           end
+        row, acc ->
+          Logger.error("Looked for #{join_on} but couldn't find it in #{Map.keys(row)}")
+          acc
       end
     )
 

@@ -31,7 +31,7 @@ defmodule Joinery.Mixfile do
   # Type "mix help deps" for more examples and options
   defp deps do
     [
-      {:exsoda, "~> 1.0.4"},
+      {:exsoda, "~> 1.0.5"},
       {:cowboy, "~> 1.0.0"},
       {:plug, "~> 1.0"}
     ]

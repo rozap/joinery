@@ -28,6 +28,14 @@ We want to build an http service that can take two four-fours, get their rows, j
 make the soda2 store sort the rows for us. This way, we can advance through the rows in a sorted manner without loading much into memory.
 
 ### Testing and writing the Soda2 pager
+
+#### Configuration
+In your `config/config.exs`, `exsoda` wants a domain, so we shall abide. Let's use `data.austintexas.gov` as our domain because they have cool datasets.
+```elixir
+config :exsoda,
+  domain: "data.austintexas.gov"
+```
+
 First we'll need to get the rows out of the soda store. Because we don't want to
 load all the rows into memory and we don't want long lived connections, we'll need to request batches of rows, which will imply some sort of state living somewhere. In Elixir/Erlang, all state is explicitly held by processes. This means the only way you can get at the state is by sending a message to that process. Because a process can only read one message at a time, this ensures that access to state is synchronized.
 
@@ -54,19 +62,19 @@ defmodule PagerTest do
     # idea, but if this call fails then we all probably
     # have much more important stuff to be dealing with
     # right now anyway...
-    {:ok, pager_pid} = Pager.start("6gnm-7jex", 5)
+    {:ok, pager_pid} = Pager.start("hcnj-rei3", 5)
 
     {:ok, rows} = Pager.next(pager_pid, "make")
     assert length(rows) == 5
   end
 
   test "can get the second page" do
-    {:ok, lil_pager} = Pager.start("6gnm-7jex", 5)
+    {:ok, lil_pager} = Pager.start("hcnj-rei3", 5)
 
     {:ok, first} = Pager.next(lil_pager, "make")
     {:ok, second} = Pager.next(lil_pager, "make")
 
-    {:ok, big_pager} = Pager.start("6gnm-7jex", 10)
+    {:ok, big_pager} = Pager.start("hcnj-rei3", 10)
     {:ok, all} = Pager.next(big_pager, "make")
 
     # Assert that the first two 5 item pages equal one 10 item page
@@ -399,3 +407,99 @@ end
 ```
 
 Now start the app with `iex -S mix`, and you should see that it started. Now go to `http://localhost:4000` in your browser, and you should get a very helpful 404 message. Similarly `http://localhost:4000/hello` should work.
+
+
+### Writing a `/join` route
+We don't have enough time to actually implement the merge-join function, so there's an implementation here https://github.com/rozap/joinery/blob/master/lib/joinery/join.ex . Copy it into your project as `lib/joinery/join.ex`. We'll be using the `join/4` function shortly.
+
+My route is going to look like `/join/left-four.foo/rite-four.bar`
+
+which will do something like `SELECT * FROM left-four lf INNER JOIN rite-four rf ON lf.foo = rf.bar`
+
+We're basically going to do the same thing as our tests...
+
+```elixir
+  defp split_ff_column(url) do
+    # Write a function that splits "four-four.zip_code"
+    # into {:ok, "four-four", "zip_code"} or {:error, "some reason"}
+    # if it fails
+  end
+
+  defp display_name_to_field_name(four_four, display_name) do
+    # Write a function that maps something like "Zip Code" to the view's Soda2
+    # column like `zip_code`. Since we require the SoQL `sort` to use the
+    # field_name but then give back the display_name in the response, we need
+    # to have tell the pager to sort by `zip_code` and then join on `Zip Code`
+
+    # Hint: use Exsoda.Reader.get_view to get the view+columns
+    # https://github.com/rozap/exsoda#get-a-view
+  end
+
+  get "/join/:left/:right" do
+    result = with {:ok, left_ff, left_j} <- to_fourfour_join(left),
+      {:ok, right_ff, right_j} <- to_fourfour_join(right),
+      {:ok, left_field_name} <- display_name_to_field_name(left_ff, left_j),
+      {:ok, right_field_name} <- display_name_to_field_name(right_ff, right_j) do
+
+      Logger.info("Planning to join #{left_ff}.#{left_j} (#{left_field_name}) to #{right_ff}.#{right_j} (#{right_field_name})")
+
+      {:ok, left} = Joinery.Pager.start(left_ff, left_field_name)
+      {:ok, right} = Joinery.Pager.start(right_ff, right_field_name)
+
+      response = Joinery.Join.join(left, right, left_j, right_j)
+      # Since our join/4 function gives back keyword lists, we
+      # need to change those keyword lists into Maps.
+      # Enum.into(a_keylist, %{}) converts a keylist into a map
+      |> Enum.map(fn keylist -> Enum.into(keylist, %{}) end)
+      # Encode our list of maps as json
+      |> Poison.encode!
+
+      # Write all of them to the connection, give back a new connection
+      send_resp(conn, 200, response)
+    end
+
+    with {:error, reason} <- result do
+      send_resp(conn, 400, reason)
+    end
+  end
+```
+
+Given that we already had all the pieces, hooking it up to an HTTP endpoint was pretty straight forward. Try killing and restarting your iex session, with `iex -S mix` and go to `http://localhost:4000/join/hcnj-rei3.Zip Code/32y8-3gbr.Zip Code`
+
+Woohoo!
+
+### Fixing other people's crappy code.
+Your coworker Kristoff is kind of an idiot and now your service is falling over because he wrote the `join.ex` in a naive way. He wrote a `TODO` in 2009 and then never fixed it, but at least you know where it is, and knowing is half the battle. There are two problems with it - it concatenates lists together needlessly, and it's eager, so the whole joined dataset is loaded into memory.
+
+Can you think of a way to solve both of these problems?
+
+Hints:
+  * Instead of returning a list from do_join, spawn a process that does the join, and then in our own process, listen for results and wrap the receive in
+  a stream
+
+  Example:
+
+  ```
+  def join(blah, blah, blah, blah) do
+
+    # Pass the received to the do_join function so it can send stuff to it
+    owner = self()
+    joiner = spawn_link(fn ->
+      # do_join will now need to send {:rows, the_rows, self()}
+      # messages back to the owner process, and will need to
+      # send a :done message when it's done
+      do_join(%State{owner: owner})
+    end)
+
+    Stream.resource(
+      fn -> :ok,
+      fn state ->
+        receive do
+          {:rows, rows, ^owner} -> {rows, state}
+          :done -> {:halt, state}
+        end
+      end,
+      fn _ -> :ok
+    )
+  end
+
