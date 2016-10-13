@@ -39,17 +39,24 @@ defmodule Joinery.Join do
   end
 
   defp advance(value, subset, rows, pager, join_on) when length(rows) > 0 do
-    {new_subset, new_rows} = Enum.reduce_while(
+    {new_subset, new_rows, _} = Enum.reduce(
       rows,
-      {subset, []},
-      fn %{^join_on => rest_value} = row, {subset, rows} ->
-        if rest_value == value do
-          {:cont, {[row | subset], rows}}
-        else
-          {:halt, {subset, [row | rows]}}
-        end
+      {subset, [], true},
+      fn
+        row, {matched, unmatched, false} ->
+          {matched, [row | unmatched], false}
+        %{^join_on => rest_value} = row, {matched, unmatched, is_matching} ->
+          if rest_value == value do
+            {[row | matched], unmatched, true}
+          else
+            {matched, [row | unmatched], false}
+          end
       end
     )
+
+    new_subset = Enum.reverse(new_subset)
+    new_rows = Enum.reverse(new_rows)
+
 
     if length(new_rows) == 0 do
       advance(value, new_subset, new_rows, pager, join_on)
@@ -108,7 +115,7 @@ defmodule Joinery.Join do
       r_pager: r_pager
     )
 
-    # Naughty
+    # Naughty - fix this by making it lazy or an iolist
     product ++ do_join(new_state)
   end
 
@@ -152,15 +159,15 @@ defmodule Joinery.Join do
       do_join(new_state)
   end
 
-  def join(l_pager, r_pager, join_on) do
-    {l_value, l_subset, l_rows, l_pager} = advance([], l_pager, join_on)
-    {r_value, r_subset, r_rows, r_pager} = advance([], r_pager, join_on)
+  def join(l_pager, r_pager, l_join_on, r_join_on) do
+    {l_value, l_subset, l_rows, l_pager} = advance([], l_pager, l_join_on)
+    {r_value, r_subset, r_rows, r_pager} = advance([], r_pager, r_join_on)
 
     do_join(%State{
       l_value: l_value,
       r_value: r_value,
-      l_join_on: join_on,
-      r_join_on: join_on,
+      l_join_on: l_join_on,
+      r_join_on: r_join_on,
       l_subset: l_subset,
       r_subset: r_subset,
       l_rows: l_rows,

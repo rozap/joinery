@@ -19,10 +19,11 @@ defmodule FastPager do
     end
   end
 
-  def loop([row | rest]) do
+  def loop(rows) do
     receive do
       {:fetch_next, sender_pid} ->
-        response = {:ok, [row]}
+        {rows, rest} = Enum.split(rows, 3)
+        response = {:ok, rows}
         send sender_pid, {:fetched, response}
         loop(rest)
     end
@@ -57,7 +58,8 @@ defmodule JoinTest do
       [{"image", "zzz.png"}, {"emoji", ":zzz:"}],
     ])
 
-    joined = Join.join(left_pager, right_pager, "emoji")
+    joined = Join.join(left_pager, right_pager, "emoji", "emoji")
+    |> IO.inspect
 
     assert joined == [
       [{"emoji", ":aussie:"}, {"image", "aussie.png"}, {"name", "urmi"}],
@@ -65,8 +67,45 @@ defmodule JoinTest do
       [{"emoji", ":dumpsterfire:"}, {"image", "dumpsterfire.png"}, {"name", "chris"}],
       [{"emoji", ":elm:"}, {"image", "elm.png"}, {"name", "pete"}],
       [{"emoji", ":rainier:"}, {"image", "rainier.png"}, {"name", "michael"}],
-      [{"emoji", ":tofu:"}, {"image", "tofu.png"}, {"name", "robert"}],
-      [{"emoji", ":tofu:"}, {"image", "tofu.png"}, {"name", "kaida"}]
+      [{"emoji", ":tofu:"}, {"image", "tofu.png"}, {"name", "kaida"}],
+      [{"emoji", ":tofu:"}, {"image", "tofu.png"}, {"name", "robert"}]
+    ]
+  end
+
+
+  test "can do an inner join on different keys" do
+    left_pager = FastPager.start("something", [
+      [{"name", "chris"}, {"something", ":dumpsterfire:"}],
+      [{"name", "urmi"}, {"something", ":aussie:"}],
+      [{"name", "pete"}, {"something", ":elm:"}],
+      [{"name", "cate"}, {"something", ":cat:"}],
+      [{"name", "kaida"}, {"something", ":tofu:"}],
+      [{"name", "michael"}, {"something", ":rainier:"}],
+      [{"name", "robert"}, {"something", ":tofu:"}]
+    ])
+
+    right_pager = FastPager.start("emoji", [
+      [{"image", "dumpsterfire.png"}, {"emoji", ":dumpsterfire:"}],
+      [{"image", "confused_yay.png"}, {"emoji", ":confused-yay:"}],
+      [{"image", "elm.png"}, {"emoji", ":elm:"}],
+      [{"image", "cat.png"}, {"emoji", ":cat:"}],
+      [{"image", "aaa.png"}, {"emoji", ":aaa:"}],
+      [{"image", "tofu.png"}, {"emoji", ":tofu:"}],
+      [{"image", "aussie.png"}, {"emoji", ":aussie:"}],
+      [{"image", "rainier.png"}, {"emoji", ":rainier:"}],
+      [{"image", "zzz.png"}, {"emoji", ":zzz:"}],
+    ])
+
+    joined = Join.join(left_pager, right_pager, "something", "emoji")
+
+    assert joined == [
+      [{"emoji", ":aussie:"}, {"image", "aussie.png"}, {"name", "urmi"}, {"something", ":aussie:"}],
+      [{"emoji", ":cat:"}, {"image", "cat.png"}, {"name", "cate"}, {"something", ":cat:"}],
+      [{"emoji", ":dumpsterfire:"}, {"image", "dumpsterfire.png"}, {"name", "chris"}, {"something", ":dumpsterfire:"}],
+      [{"emoji", ":elm:"}, {"image", "elm.png"}, {"name", "pete"}, {"something", ":elm:"}],
+      [{"emoji", ":rainier:"}, {"image", "rainier.png"}, {"name", "michael"}, {"something", ":rainier:"}],
+      [{"emoji", ":tofu:"}, {"image", "tofu.png"}, {"name", "kaida"}, {"something", ":tofu:"}],
+      [{"emoji", ":tofu:"}, {"image", "tofu.png"}, {"name", "robert"}, {"something", ":tofu:"}]
     ]
   end
 end

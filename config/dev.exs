@@ -1,4 +1,4 @@
 use Mix.Config
 
 config :exsoda,
-  domain: "data.seattle.gov"
+  domain: "data.austintexas.gov"

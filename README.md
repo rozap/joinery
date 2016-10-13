@@ -209,8 +209,193 @@ end
 
 So now your tests should pass. [If they don't, this is the implementation that I came up with](https://github.com/rozap/joinery/blob/master/lib/joinery/pager.ex)
 
-### Testing and writing the join function
-The [sort-merge-join](https://en.wikipedia.org/wiki/Sort-merge_join) approach for doing a join will work well for us, because we can request streams of socrata datasets in sorted order. (yes there are row limits let's pretend they don't exist for the sake of simplicity)
+### Writing an HTTP Service
 
-Let's write a test case that will help us test our join function. The join function will
-take two streams which it will assume are in sorted order
+We're going to use [plug](https://github.com/elixir-lang/plug) which is a specification for writing http connection handlers in elixir. The phoenix framework is based on plug, so they behave very similarly, but plug is "lower level".
+
+Plug (and the core of phoenix) is pretty simple. A plug is just a module that has two functions, `init/1` and `call/2`.
+  * `init/1` returns any options for that plug
+  * `call/2` takes a connection, and must return a new connection, with any transformations applied. It's important to remember that connections are immutable, so:
+
+  ```elixir
+    # very bad - `conn` is still bound to the same `conn` that was passed in
+    def call(conn, _) do
+      put_resp_content_type(conn, "text/plain")]
+      send_resp(conn, 200, "ok")
+      send_resp(conn, 200, "ok")
+
+      conn
+    end
+  ```
+
+  ```elixir
+    # better
+    def call(conn, _) do
+      conn = put_resp_content_type(conn, "text/plain")]
+      conn = send_resp(conn, 200, "ok")
+      conn
+    end
+  ```
+See in the second one, we return a new `conn` struct for everything we do on the struct?
+
+This works as well
+  ```elixir
+    # With syntactic sugar
+    def call(conn, _) do
+      conn
+      |> put_resp_content_type("text/plain")]
+      |> send_resp(200, "ok")
+    end
+  ```
+This is the same as the previous example, but since pretty much all the methods in the plug library take a conn as the first argument, the `|>` operator works well for getting rid of all the variable rebinding, which can get a little confusing.
+
+Now we can write some stuff. First will add some dependencies. Add `{:cowboy, "~> 1.0.0"}` and `{:plug, "~> 1.0"}` the the deps in our mixfile. Cowboy is an http server written in erlang. Run `mix deps.get` to fetch the new dependencies.
+
+Now we'll write a test for our plug. I made a file called `test/http_test.exs`. It's just going to look like a normal `ExUnit` test module, but we're going to `use` the `Plug.Test` module. `use` is a macro that pulls in certain attributes defined by the module.
+
+```elixir
+defmodule HttpTest do
+  use ExUnit.Case, async: true
+  use Plug.Test
+
+  # Just so we can refer to our router as `Router` instead of `Joinery.Router`
+  alias Joinery.Router
+
+  @opts Router.init([])
+end
+```
+
+Now we can write a plug test. This looks like a normal `ExUnit` test.
+
+```elixir
+test "returns hello world" do
+  conn = conn(:get, "/hello")
+
+  # Invoke the plug
+  conn = Router.call(conn, @opts)
+
+  assert conn.state == :sent
+  assert conn.status == 200
+  assert conn.resp_body == "world"
+end
+```
+
+Now try running `mix test test/http_test.exs` and you should get a `Joinery.Router` not defined error, so let's go write that module.
+
+I made a file called `lib/joinery/router.ex`, and it has a bit of plug boilerplate in it. We're using the Plug.Router which turns our module into a
+
+```elixir
+defmodule Joinery.Router do
+  use Plug.Router
+
+  plug :match
+  plug :dispatch
+
+end
+```
+
+Now we can write a route for the `/hello` path that we wrote in the test. It will look like
+```elixir
+  get "/hello" do
+    send_resp(conn, 200, "world")
+  end
+```
+
+We also want to handle unknown routes,
+```elixir
+  match _ do
+    send_resp(conn, 404, "idk")
+  end
+```
+
+So now our router should look like
+
+```elixir
+defmodule Joinery.Router do
+  use Plug.Router
+  require Logger
+
+  plug :match
+  plug :dispatch
+
+  get "/hello" do
+    send_resp(conn, 200, "world")
+  end
+
+  match _ do
+    send_resp(conn, 404, "idk")
+  end
+end
+
+```
+
+Now try running `mix test test/http_test.exs` and things should pass.
+
+### The `Application`
+At this point we have a test, but we need to add our plug to our `Application` if we actually want to run it. An Application is something that can be started or stopped as a unit, and potentially re-used in other applications. Our `Application` consists of an HTTP Server, but it could also have other things, like activemq consumers, workers, metrics gatherers, etc. An elixir/erlang Application differs from the "we're starting this {ruby|python|java} application now, spawn a bunch of threads to do different things and hopefully they don't crash" strategy by defining a supervision tree which can be started or stopped, and can restart any children when they misbehave.
+
+Right now we have an empty module called `Joinery` in `lib/joinery.ex`. This will be our application module. Let's make it our entry point. We need to `use Application` and defint a `start/2` function.
+
+```elixir
+defmodule Joinery do
+  # make this module an application
+  use Application
+  # we're going to log stuff, so pull in the Logger module
+  require Logger
+
+  def start(_type, _args) do
+    Logger.info("Starting our app!")
+  end
+end
+```
+
+We also need to tell `mix` which module is our application. Notice there is an `application/0` function in our mixfile (`mix.exs`). While you're at it, go ahead and add `:cowboy` and `:plug` to the `applications` list, which will tell erlang to start those applications when the `Joinery` app starts.
+
+```elixir
+  def application do
+    [
+      mod: {Joinery, []}, # Tell mix that this is our entrypoint
+      applications: [:logger, :exsoda, :cowboy, :plug]
+    ]
+  end
+```
+
+Now start our app with `iex -S mix`
+
+Our app should log `Starting our app!` and then it will crash with
+```
+** (Mix) Could not start application joinery: Joinery.start(:normal, []) returned a bad value: :ok
+```
+
+This is because we didn't start an Application supervisor and return it, which is required.
+```elixir
+defmodule Joinery do
+  use Application
+  require Logger
+
+  @port 4000
+
+  def start(_type, _args) do
+    Logger.info("Starting our app!")
+    import Supervisor.Spec
+
+    child_specs = [
+      # Plug can adapt our Router plug to a child specification that
+      # we can then give to a supervisor. A child specification is something
+      # that says how we start something, and how we restart it when it crashes
+      Plug.Adapters.Cowboy.child_spec(:http, Joinery.Router, [], [port: @port])
+    ]
+
+    Logger.info("Starting on port #{@port}")
+
+    # start_link starts our supervisor with our child_specs
+    Supervisor.start_link(
+      child_specs,
+      # We give it a name, so when you start observer you can identify it easily
+      strategy: :one_for_one, name: Joinery.Supervisor
+    )
+  end
+end
+```
+
+Now start the app with `iex -S mix`, and you should see that it started. Now go to `http://localhost:4000` in your browser, and you should get a very helpful 404 message. Similarly `http://localhost:4000/hello` should work.

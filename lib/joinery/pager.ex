@@ -1,7 +1,8 @@
 defmodule Joinery.Pager do
   import Exsoda.Reader
+  require Logger
 
-  def start(fourfour, order, page_size \\ 20) do
+  def start(fourfour, order, page_size \\ 100) do
     count_response = query(fourfour)
     |> select(["count(*)"])
     |> run
@@ -9,6 +10,9 @@ defmodule Joinery.Pager do
     with {:ok, stream} <- count_response do
       [{"count", c}] = List.first(Enum.into(stream, []))
       row_count = String.to_integer(c)
+
+      Logger.info("Expecting to find #{row_count} in #{fourfour}")
+
       # Start a new process
       pid = spawn_link(Joinery.Pager, :handle_fetches, [fourfour, order, row_count, page_size, 0])
       {:ok, pid}
@@ -16,13 +20,17 @@ defmodule Joinery.Pager do
   end
 
   def handle_fetches(fourfour, _, row_count, page_size, current_page) when current_page * page_size >= row_count do
-    IO.puts "Pager for #{fourfour} has been exhausted, exiting..."
-    :done
+    IO.puts "#{inspect self} Pager for #{fourfour} has been exhausted, exiting..."
+    receive do
+      {:fetch_next, sender_pid} ->
+        send sender_pid, :done
+    end
   end
 
   def handle_fetches(fourfour, order, row_count, page_size, current_page) do
     receive do
       {:fetch_next, sender_pid} ->
+        Logger.info("#{inspect self } is fetching next for #{fourfour}")
         response = query(fourfour)
         |> order(order)
         |> offset(page_size * current_page)
@@ -48,13 +56,14 @@ defmodule Joinery.Pager do
   end
 
   def next(pid) do
+    IO.puts "Fetch next from #{inspect pid}"
     send pid, {:fetch_next, self()}
 
     receive do
       {:fetched, result} -> result
       :done -> :done
     after
-      2000 -> {:error, :timeout}
+      5_000 -> {:error, :timeout}
     end
   end
 end
