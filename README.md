@@ -41,7 +41,7 @@ load all the rows into memory and we don't want long lived connections, we'll ne
 
 The idea behind state in elixir is to have a function recursively call itself, where the body of the function executes a `receive` block to handle a message in its mailbox. The function can then react to that message in any way it wants, and then it can call itself with the new state, causing it to wait for the next message.
 
-Let's start by making a module called `Joinery.Pager` in `joinery/pager.ex` and a test module called `test/pager_test.exs`
+Let's start by making a module called `Joinery.Pager` in `lib/joinery/pager.ex` and a test module called `test/pager_test.exs`
 
 ```elixir
 defmodule Joinery.Pager do
@@ -84,7 +84,7 @@ end
 ```
 
 
-Now back in our `joinery/pager.ex` `Pager` module we can start writing
+Now back in our `lib/joinery/pager.ex` `Pager` module we can start writing
 the `start/3` function
 ```elixir
 defmodule Joinery.Pager do
@@ -436,8 +436,8 @@ We're basically going to do the same thing as our tests...
   end
 
   get "/join/:left/:right" do
-    result = with {:ok, left_ff, left_j} <- to_fourfour_join(left),
-      {:ok, right_ff, right_j} <- to_fourfour_join(right),
+    result = with {:ok, left_ff, left_j} <- split_ff_column(left),
+      {:ok, right_ff, right_j} <- split_ff_column(right),
       {:ok, left_field_name} <- display_name_to_field_name(left_ff, left_j),
       {:ok, right_field_name} <- display_name_to_field_name(right_ff, right_j) do
 
