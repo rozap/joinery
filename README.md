@@ -64,18 +64,18 @@ defmodule PagerTest do
     # right now anyway...
     {:ok, pager_pid} = Pager.start("hcnj-rei3", 5)
 
-    {:ok, rows} = Pager.next(pager_pid, "make")
+    {:ok, rows} = Pager.next(pager_pid, "zip_code")
     assert length(rows) == 5
   end
 
   test "can get the second page" do
     {:ok, lil_pager} = Pager.start("hcnj-rei3", 5)
 
-    {:ok, first} = Pager.next(lil_pager, "make")
-    {:ok, second} = Pager.next(lil_pager, "make")
+    {:ok, first} = Pager.next(lil_pager, "zip_code")
+    {:ok, second} = Pager.next(lil_pager, "zip_code")
 
     {:ok, big_pager} = Pager.start("hcnj-rei3", 10)
-    {:ok, all} = Pager.next(big_pager, "make")
+    {:ok, all} = Pager.next(big_pager, "zip_code")
 
     # Assert that the first two 5 item pages equal one 10 item page
     assert (first ++ second) == all

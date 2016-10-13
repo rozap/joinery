@@ -119,7 +119,7 @@ defmodule Joinery.Join do
       r_pager: r_pager
     )
 
-    # Naughty - fix this by making it lazy or an iolist
+    # Written 10/27/2009, TODO: fix this by making it lazy or
     product ++ do_join(new_state)
   end
 
