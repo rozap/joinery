@@ -49,7 +49,7 @@ defmodule Joinery.Pager do
 end
 ```
 
-Our `Pager` module is going to have just two external functions, `start/3` and `next/3`. `start` will take the four-four, row ordering, and page size, and it will start a new process which will accept messages and then call itself recursively. `next/1` will take the pid of that process and will send a message to advance the page, then wait for a reply with the rows that it got.
+Our `Pager` module is going to have just two external functions, `start/3` and `next/1`. `start` will take the four-four, row ordering, and page size, and it will start a new process which will accept messages and then call itself recursively. `next/1` will take the pid of that process and will send a message to advance the page, then wait for a reply with the rows that it got.
 
 We can write some really simple tests like this in `test/pager_test.exs`
 ```elixir
@@ -71,11 +71,11 @@ defmodule PagerTest do
   test "can get the second page" do
     {:ok, lil_pager} = Pager.start("hcnj-rei3", 5)
 
-    {:ok, first} = Pager.next(lil_pager, "zip_code")
-    {:ok, second} = Pager.next(lil_pager, "zip_code")
+    {:ok, first} = Pager.next(lil_pager)
+    {:ok, second} = Pager.next(lil_pager)
 
     {:ok, big_pager} = Pager.start("hcnj-rei3", 10)
-    {:ok, all} = Pager.next(big_pager, "zip_code")
+    {:ok, all} = Pager.next(big_pager)
 
     # Assert that the first two 5 item pages equal one 10 item page
     assert (first ++ second) == all
