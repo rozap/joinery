@@ -64,7 +64,7 @@ defmodule PagerTest do
     # right now anyway...
     {:ok, pager_pid} = Pager.start("hcnj-rei3", 5)
 
-    {:ok, rows} = Pager.next(pager_pid, "zip_code")
+    {:ok, rows} = Pager.next(pager_pid)
     assert length(rows) == 5
   end
 
